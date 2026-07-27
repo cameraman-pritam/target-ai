@@ -1,5 +1,6 @@
 #include "crow.h"
 #include "cnn_engine.hpp"
+#include <mutex> // Needed for Multithreading Race Condition Fix
 
 int main() {
     crow::SimpleApp app;
@@ -10,17 +11,17 @@ int main() {
     if (!htr_engine.loadModel(model_path)) {
         CROW_LOG_WARNING << "Could not load " << model_path << ". Running with initialized weights.";
     } else {
-        CROW_LOG_INFO << "Loaded trained HTR model parameters from " << model_path;
+        CROW_LOG_INFO << "Loaded trained model parameters from " << model_path;
     }
 
-    // Health Endpoint
+    // Engine Mutex guarantees only one thread writes to the internal state variables at a time
+    static std::mutex engine_mutex; 
+
     CROW_ROUTE(app, "/health")([]() {
         return crow::response(200, "OK");
     });
 
-    // Sequence OCR Prediction Route
     CROW_ROUTE(app, "/api/ocr/predict").methods(crow::HTTPMethod::POST, crow::HTTPMethod::OPTIONS)([&htr_engine](const crow::request& req) {
-        // OPTIONS Pre-flight handling for Browser CORS
         if (req.method == crow::HTTPMethod::OPTIONS) {
             crow::response res(200);
             res.add_header("Access-Control-Allow-Origin", "*");
@@ -44,13 +45,17 @@ int main() {
         }
 
         if (input_pixels.size() != 32 * 128) {
-            crow::response res(400, "Invalid dimensions: Pixel array must contain exactly 4096 elements.");
+            crow::response res(400, "Invalid dimensions: Exactly 4096 pixels required.");
             res.add_header("Access-Control-Allow-Origin", "*");
             return res;
         }
 
-        // Run inference
-        std::string recognized_string = htr_engine.predict(input_pixels);
+        std::string recognized_string;
+        {
+            // The Thread Lock: Thread B will sit safely at this line until Thread A unlocks
+            std::lock_guard<std::mutex> lock(engine_mutex); 
+            recognized_string = htr_engine.predict(input_pixels);
+        }
 
         crow::json::wvalue res_data;
         res_data["text"] = recognized_string;
