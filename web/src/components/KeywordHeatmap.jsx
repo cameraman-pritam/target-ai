@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Award, CheckCircle2, XCircle, Plus, Trash2, BookOpen } from 'lucide-react';
+import { Award, CheckCircle2, XCircle, Plus, Trash2, BookOpen, Cpu } from 'lucide-react';
 import { DEFAULT_RUBRICS } from '../hooks/useTargetEngine';
 
 export default function KeywordHeatmap({
@@ -7,26 +7,19 @@ export default function KeywordHeatmap({
   activeRubricKey,
   setActiveRubricKey,
   activeRubric,
-  rubricEvaluation,
+  apiResult,
   customKeywords,
   setCustomKeywords,
 }) {
   const [newKeyword, setNewKeyword] = useState('');
-  const [newPoints, setNewPoints] = useState('1.0');
-  const [newRequired, setNewRequired] = useState(true);
 
   const handleAddKeyword = (e) => {
     e.preventDefault();
     if (!newKeyword.trim()) return;
 
-    setCustomKeywords([
-      ...customKeywords,
-      {
-        term: newKeyword.trim().toLowerCase(),
-        points: parseFloat(newPoints) || 1.0,
-        required: newRequired,
-      },
-    ]);
+    if (!customKeywords.includes(newKeyword.trim().toLowerCase())) {
+      setCustomKeywords([...customKeywords, newKeyword.trim().toLowerCase()]);
+    }
     setNewKeyword('');
   };
 
@@ -36,7 +29,12 @@ export default function KeywordHeatmap({
     setCustomKeywords(updated);
   };
 
-  // Render Highlighted Text Engine (Green pills for matches, red underline for emphasis)
+  // Derive matched and missing keywords from backend API result or rubric list
+  const matchedKeywords = apiResult?.matched_keywords || [];
+  const missingKeywords = apiResult?.missing_keywords || [];
+  const scorePercentage = apiResult?.score_percentage ?? 0;
+
+  // Render Highlighted Text Engine (Green pills for matched, text display)
   const renderHighlightedText = () => {
     if (!extractedText) {
       return (
@@ -46,18 +44,13 @@ export default function KeywordHeatmap({
       );
     }
 
-    const { allKeywords } = rubricEvaluation;
-    // Build regex pattern for all terms
-    const sortedTerms = [...allKeywords]
-      .map((k) => k.term)
-      .sort((a, b) => b.length - a.length);
-
-    if (sortedTerms.length === 0) {
-      return <p className="text-sm text-[#1A1A1A] font-mono">{extractedText}</p>;
+    if (matchedKeywords.length === 0) {
+      return <p className="text-sm text-[#1A1A1A] font-mono leading-relaxed p-4 bg-[#FFFDF9] border-2 border-[#1A1A1A]">{extractedText}</p>;
     }
 
-    // Escape regex special chars
-    const escapedTerms = sortedTerms.map((t) =>
+    // Sort matched terms by length descending for regex matching
+    const sortedMatched = [...matchedKeywords].sort((a, b) => b.length - a.length);
+    const escapedTerms = sortedMatched.map((t) =>
       t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     );
     const regex = new RegExp(`(${escapedTerms.join('|')})`, 'gi');
@@ -67,16 +60,16 @@ export default function KeywordHeatmap({
     return (
       <div className="font-mono text-sm leading-relaxed text-[#1A1A1A] p-4 bg-[#FFFDF9] border-2 border-[#1A1A1A]">
         {parts.map((part, idx) => {
-          const matchedKw = allKeywords.find(
-            (k) => k.term.toLowerCase() === part.toLowerCase()
+          const isMatched = matchedKeywords.some(
+            (kw) => kw.toLowerCase() === part.toLowerCase()
           );
 
-          if (matchedKw) {
+          if (isMatched) {
             return (
               <span
                 key={idx}
                 className="inline-block bg-[#2E6F40] text-white px-2 py-0.5 mx-0.5 font-bold border border-[#1A1A1A] shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] text-xs"
-                title={`Matched Rubric Term: "${matchedKw.term}" (+${matchedKw.points} marks)`}
+                title={`Matched C++ NLP Keyword: "${part}"`}
               >
                 ✓ {part}
               </span>
@@ -88,8 +81,6 @@ export default function KeywordHeatmap({
     );
   };
 
-  const { score, maxMarks, percentage, matched, missing } = rubricEvaluation;
-
   return (
     <div className="w-full bg-[#FBF8EF] border-2 border-[#1A1A1A] p-5 shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] font-mono">
       {/* Subject Rubric Switcher Tabs */}
@@ -97,7 +88,7 @@ export default function KeywordHeatmap({
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
           <h2 className="text-xl font-extrabold text-[#1A1A1A] uppercase tracking-wide flex items-center gap-2">
             <Award className="w-5 h-5" />
-            <span>SECTION B: DIAGNOSTIC HEATMAP & RUBRIC EVALUATOR</span>
+            <span>SECTION B: C++ NLP DIAGNOSTIC HEATMAP</span>
           </h2>
         </div>
 
@@ -122,7 +113,7 @@ export default function KeywordHeatmap({
         </div>
       </div>
 
-      {/* Question & Marking Scheme Prompt */}
+      {/* Question Prompt */}
       <div className="mb-5 bg-[#F2EFE9] border border-[#1A1A1A] p-3 text-xs">
         <div className="font-bold text-[#1A1A1A] uppercase mb-1 flex items-center gap-1.5">
           <BookOpen className="w-4 h-4" />
@@ -131,34 +122,32 @@ export default function KeywordHeatmap({
         <p className="text-[#2B2B2B] italic">{activeRubric.question}</p>
       </div>
 
-      {/* Score Progress Card */}
+      {/* C++ NLP Score Card Driven strictly by API payload */}
       <div className="mb-5 bg-[#FFFDF9] border-2 border-[#1A1A1A] p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
           <div>
-            <span className="text-xs font-bold text-[#4A4A4A] uppercase tracking-wider block">
-              RUBRIC EVALUATION SCORE
+            <span className="text-xs font-bold text-[#4A4A4A] uppercase tracking-wider block flex items-center gap-1">
+              <Cpu className="w-3.5 h-3.5 text-[#2E6F40]" />
+              C++ CROW NLP SCORE PERCENTAGE
             </span>
             <div className="flex items-baseline gap-2">
               <span className="text-4xl font-extrabold text-[#1A1A1A]">
-                {score.toFixed(1)}
-              </span>
-              <span className="text-lg font-bold text-[#4A4A4A]">
-                / {maxMarks} MARKS
+                {scorePercentage.toFixed(1)}%
               </span>
             </div>
           </div>
 
           <div className="text-right">
             <div
-              className={`inline-block px-3 py-1 border-2 border-[#1A1A1A] text-sm font-bold text-white ${
-                percentage >= 80
+              className={`inline-block px-3 py-1 border-2 border-[#1A1A1A] text-xs font-bold text-white uppercase ${
+                scorePercentage >= 75
                   ? 'bg-[#2E6F40]'
-                  : percentage >= 50
+                  : scorePercentage >= 50
                   ? 'bg-[#8C6D23]'
                   : 'bg-[#A83232]'
               }`}
             >
-              {percentage}% EVALUATION MATCH
+              {apiResult ? `STATUS: ${apiResult.status}` : 'READY FOR EVALUATION'}
             </div>
           </div>
         </div>
@@ -167,13 +156,13 @@ export default function KeywordHeatmap({
         <div className="w-full bg-[#F2EFE9] border-2 border-[#1A1A1A] h-5 p-0.5">
           <div
             className={`h-full transition-all duration-300 ${
-              percentage >= 80
+              scorePercentage >= 75
                 ? 'bg-[#2E6F40]'
-                : percentage >= 50
+                : scorePercentage >= 50
                 ? 'bg-[#8C6D23]'
                 : 'bg-[#A83232]'
             }`}
-            style={{ width: `${percentage}%` }}
+            style={{ width: `${Math.min(100, Math.max(0, scorePercentage))}%` }}
           />
         </div>
       </div>
@@ -182,54 +171,58 @@ export default function KeywordHeatmap({
       <div className="mb-5">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-bold text-[#1A1A1A] uppercase">
-            TEXT HEATMAP (GREEN PILLS = MATCHED RUBRIC KEYWORDS):
+            TEXT HEATMAP (GREEN PILLS = MATCHED C++ KEYWORDS):
           </span>
           <span className="text-[11px] text-[#2E6F40] font-bold">
-            {matched.length} Matched / {missing.length} Missing
+            {matchedKeywords.length} Matched / {missingKeywords.length} Missing
           </span>
         </div>
         {renderHighlightedText()}
       </div>
 
-      {/* Missing Mandatory Rubric Checklist */}
+      {/* Matched vs Missing Keywords Badges */}
       <div className="mb-5 grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Matched Keywords */}
         <div className="bg-[#F0F7F2] border-2 border-[#2E6F40] p-3 text-xs">
           <span className="font-bold text-[#2E6F40] uppercase flex items-center gap-1.5 mb-2">
             <CheckCircle2 className="w-4 h-4" />
-            MATCHED KEYWORDS ({matched.length})
+            MATCHED KEYWORDS ({matchedKeywords.length})
           </span>
-          {matched.length === 0 ? (
+          {matchedKeywords.length === 0 ? (
             <p className="text-[#4A4A4A] italic">No keywords matched yet.</p>
           ) : (
-            <ul className="space-y-1">
-              {matched.map((kw, idx) => (
-                <li key={idx} className="flex justify-between items-center bg-white border border-[#2E6F40] p-1.5">
-                  <span className="font-bold text-[#2E6F40]">✓ {kw.term}</span>
-                  <span className="bg-[#2E6F40] text-white px-1.5 py-0.5 text-[10px]">+{kw.points} pts</span>
-                </li>
+            <div className="flex flex-wrap gap-1.5">
+              {matchedKeywords.map((kw, idx) => (
+                <span
+                  key={idx}
+                  className="bg-[#2E6F40] text-white px-2 py-1 font-bold border border-[#1A1A1A] text-[11px] shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                >
+                  ✓ {kw}
+                </span>
               ))}
-            </ul>
+            </div>
           )}
         </div>
 
-        {/* Missing Required Keywords */}
+        {/* Missing Keywords */}
         <div className="bg-[#FDF2F2] border-2 border-[#A83232] p-3 text-xs">
           <span className="font-bold text-[#A83232] uppercase flex items-center gap-1.5 mb-2">
             <XCircle className="w-4 h-4" />
-            MISSING RUBRIC TERMS ({missing.length})
+            MISSING KEYWORDS ({missingKeywords.length})
           </span>
-          {missing.length === 0 ? (
+          {missingKeywords.length === 0 ? (
             <p className="text-[#2E6F40] font-bold">All mandatory rubric terms satisfied!</p>
           ) : (
-            <ul className="space-y-1">
-              {missing.map((kw, idx) => (
-                <li key={idx} className="flex justify-between items-center bg-white border border-[#A83232] p-1.5">
-                  <span className="line-through text-[#A83232] font-bold">✗ {kw.term}</span>
-                  <span className="text-[#A83232] text-[10px] font-bold">{kw.required ? 'REQUIRED' : 'OPTIONAL'} ({kw.points} pts)</span>
-                </li>
+            <div className="flex flex-wrap gap-1.5">
+              {missingKeywords.map((kw, idx) => (
+                <span
+                  key={idx}
+                  className="bg-[#A83232] text-white px-2 py-1 font-bold border border-[#1A1A1A] text-[11px] line-through shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                >
+                  ✗ {kw}
+                </span>
               ))}
-            </ul>
+            </div>
           )}
         </div>
       </div>
@@ -237,7 +230,7 @@ export default function KeywordHeatmap({
       {/* Dynamic Custom Keyword Form */}
       <div className="bg-[#F2EFE9] border-2 border-[#1A1A1A] p-4 text-xs">
         <span className="font-bold text-[#1A1A1A] uppercase block mb-2">
-          ADD CUSTOM EVALUATION RUBRIC KEYWORD:
+          ADD CUSTOM RUBRIC KEYWORD FOR C++ NLP EVALUATION:
         </span>
         <form onSubmit={handleAddKeyword} className="flex flex-wrap gap-2 items-center">
           <input
@@ -247,25 +240,6 @@ export default function KeywordHeatmap({
             onChange={(e) => setNewKeyword(e.target.value)}
             className="flex-1 bg-white border border-[#1A1A1A] px-2 py-1 text-xs focus:outline-none"
           />
-          <select
-            value={newPoints}
-            onChange={(e) => setNewPoints(e.target.value)}
-            className="bg-white border border-[#1A1A1A] px-2 py-1 text-xs font-bold"
-          >
-            <option value="0.5">0.5 pts</option>
-            <option value="1.0">1.0 pts</option>
-            <option value="1.5">1.5 pts</option>
-            <option value="2.0">2.0 pts</option>
-          </select>
-          <label className="flex items-center gap-1 text-[11px] font-bold cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={newRequired}
-              onChange={(e) => setNewRequired(e.target.checked)}
-              className="accent-[#1A1A1A]"
-            />
-            <span>REQUIRED</span>
-          </label>
           <button
             type="submit"
             className="px-3 py-1 border border-[#1A1A1A] bg-[#1A1A1A] text-white font-bold press-btn flex items-center gap-1"
@@ -279,7 +253,7 @@ export default function KeywordHeatmap({
         {customKeywords.length > 0 && (
           <div className="mt-3 pt-2 border-t border-[#D3CBBE]">
             <span className="font-bold text-[#4A4A4A] text-[11px] block mb-1">
-              CUSTOM KEYWORDS ADDED:
+              CUSTOM KEYWORDS INCLUDED IN NLP EVALUATION:
             </span>
             <div className="flex flex-wrap gap-1.5">
               {customKeywords.map((kw, idx) => (
@@ -287,7 +261,7 @@ export default function KeywordHeatmap({
                   key={idx}
                   className="inline-flex items-center gap-1 bg-white border border-[#1A1A1A] px-2 py-0.5 font-bold"
                 >
-                  <span>{kw.term} ({kw.points} pts)</span>
+                  <span>{kw}</span>
                   <button
                     onClick={() => handleRemoveCustomKeyword(idx)}
                     className="text-[#A83232] hover:text-black ml-1"

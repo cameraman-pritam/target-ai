@@ -13,6 +13,7 @@ export default function AnswerEditor({
   openCamera,
   onLoadPresetSample,
   activeSubject,
+  onEvaluate,
 }) {
   const fileInputRef = useRef(null);
 
@@ -205,6 +206,17 @@ export default function AnswerEditor({
           <div className="flex justify-between items-center text-[11px] text-[#4A4A4A] pt-1">
             <span>Evaluators can refine OCR recognized text directly in the box above.</span>
             <span className="font-bold text-[#2E6F40]">REALTIME SYNCED TO HEATMAP →</span>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={() => onEvaluate && onEvaluate(extractedText)}
+              disabled={isPredicting}
+              className="w-full py-3 px-4 bg-[#2E6F40] hover:bg-[#255933] text-white font-bold text-xs uppercase tracking-wider border-2 border-[#1A1A1A] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] press-btn flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>RUN C++ CROW NLP EVALUATION</span>
+            </button>
           </div>
         </div>
       )}

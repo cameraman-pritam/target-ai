@@ -5,7 +5,7 @@ import LoadingSkeleton from './components/LoadingSkeleton';
 import CameraModal from './components/CameraModal';
 import { ShieldCheck, Printer } from 'lucide-react';
 
-// Lazy loading heavy components with Suspense boundary fallback
+// Lazy loading heavy broadsheet components with Suspense boundary
 const AnswerEditor = lazy(() => import('./components/AnswerEditor'));
 const KeywordHeatmap = lazy(() => import('./components/KeywordHeatmap'));
 
@@ -17,6 +17,7 @@ export default function App() {
     const rub = DEFAULT_RUBRICS[subjectKey];
     if (rub) {
       engine.setExtractedText(rub.sampleText);
+      engine.evaluateAnswer(rub.sampleText, rub.keywords);
     }
   };
 
@@ -26,38 +27,38 @@ export default function App() {
       <Header
         isBackendOnline={engine.isBackendOnline}
         isHealthChecking={engine.isHealthChecking}
-        lastCheckTime={engine.lastCheckTime}
         onRefreshHealth={engine.checkHealth}
       />
 
-      {/* Main Split-Screen / Stacked Broadsheet Layout */}
+      {/* Main Split-Screen Broadsheet Layout */}
       <main className="flex-1 w-full max-w-7xl mx-auto my-2">
-        <Suspense fallback={<LoadingSkeleton text="LOADING TARGET AI ENGINE..." subtitle="Initializing broadsheet OCR components & rubric models..." />}>
+        <Suspense fallback={<LoadingSkeleton text="LOADING TARGET AI ENGINE..." subtitle="Initializing broadsheet OCR components & C++ NLP models..." />}>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Column: Script Ingestion & OCR Editor (Desktop 6 cols) */}
             <section className="lg:col-span-6 w-full">
               <AnswerEditor
                 extractedText={engine.extractedText}
                 setExtractedText={engine.setExtractedText}
-                isPredicting={engine.isPredicting}
-                predictionError={engine.predictionError}
+                isPredicting={engine.isEvaluating}
+                predictionError={engine.evaluationError}
                 previewUrl={engine.previewUrl}
                 pixelData={engine.pixelData}
                 handleFileUpload={engine.handleFileUpload}
                 openCamera={engine.openCamera}
                 onLoadPresetSample={handlePresetSampleLoad}
                 activeSubject={engine.activeRubricKey}
+                onEvaluate={(text) => engine.evaluateAnswer(text)}
               />
             </section>
 
-            {/* Right Column: Diagnostic Heatmap & Rubric Evaluator (Desktop 6 cols) */}
+            {/* Right Column: Diagnostic Heatmap & NLP Evaluator (Desktop 6 cols) */}
             <section className="lg:col-span-6 w-full">
               <KeywordHeatmap
                 extractedText={engine.extractedText}
                 activeRubricKey={engine.activeRubricKey}
                 setActiveRubricKey={engine.setActiveRubricKey}
                 activeRubric={engine.activeRubric}
-                rubricEvaluation={engine.rubricEvaluation}
+                apiResult={engine.apiResult}
                 customKeywords={engine.customKeywords}
                 setCustomKeywords={engine.setCustomKeywords}
               />
@@ -83,7 +84,7 @@ export default function App() {
             <span className="font-bold text-[#1A1A1A] uppercase">TARGET AI BOARD EVALUATION SYSTEM</span>
           </div>
           <div className="flex items-center gap-4 text-[11px]">
-            <span>C++ Crow Backend: http://localhost:8080</span>
+            <span>C++ Crow NLP Endpoint: http://localhost:8080/api/nlp/evaluate</span>
             <span>•</span>
             <span>Resampling: 32x128 Grayscale Inverted</span>
           </div>
