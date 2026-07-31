@@ -1,6 +1,0 @@
-# Ignore all raw dataset contents (IAM images, transcript files)
-*
-
-# Keep gitignore and documentation in the dataset folder
-!.gitignore
-!README.md
