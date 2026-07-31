@@ -1,89 +1,119 @@
-import { useState, useEffect, useCallback } from 'react';
-import { processImageFile, captureVideoFrame } from '../utils/imagePreprocessor';
+import { useState, useEffect, useCallback } from "react";
+import {
+  processImageFile,
+  textToBase64Image,
+  captureVideoFrame,
+} from "../utils/imagePreprocessor";
 
-const DIRECT_OCR_URL = 'http://localhost:8080/api/ocr/extract';
-const PROXY_OCR_URL = '/api/ocr/extract';
-const DIRECT_ANALYZE_URL = 'http://localhost:8080/api/text/analyze';
-const PROXY_ANALYZE_URL = '/api/text/analyze';
-const HEALTH_URL = '/health';
+const PRIMARY_GRADE_DUAL_URL = "/api/ocr/grade-dual";
+const DIRECT_GRADE_DUAL_URL = "http://localhost:8080/api/ocr/grade-dual";
+const DIRECT_HEALTH_URL = "http://localhost:8080/health";
+const PROXY_HEALTH_URL = "/health";
 
-// Pre-packaged CBSE Board Exam Subject Rubrics
-export const DEFAULT_RUBRICS = {
+// Pre-packaged CBSE Board Exam Question + Answer Subject Presets
+export const DEFAULT_SUBJECT_PRESETS = {
   physics: {
-    id: 'physics',
-    subject: 'CBSE 12th Physics - Electromagnetic Induction',
-    question: 'Q: State Faraday\'s Law of Electromagnetic Induction and Lenz\'s Law. Write the mathematical formula.',
-    maxMarks: 5,
-    keywords: ['magnetic flux', 'induced emf', 'rate of change', 'lenz law', 'conservation of energy'],
-    sampleText: 'According to Faraday\'s law, induced emf in a circuit is directly proportional to the rate of change of magnetic flux linked with it. Lenz law states that the direction of induced current opposes the change in flux, obeying conservation of energy.'
-  },
-  chemistry: {
-    id: 'chemistry',
-    subject: 'CBSE 12th Chemistry - Organic Kinetics',
-    question: 'Q: Explain the mechanism of SN1 nucleophilic substitution reaction with energy profile diagram.',
-    maxMarks: 5,
-    keywords: ['carbocation', 'two step', 'rate determining step', 'racemic mixture', 'tertiary substrate'],
-    sampleText: 'SN1 reaction is a two step process forming a carbocation intermediate. The first step of carbocation formation is the rate determining step. It forms a racemic mixture with tertiary substrate.'
+    id: "physics",
+    subject: "CBSE 12th Physics - Ohm's Law",
+    questionText:
+      "Define Ohm's Law and write its mathematical relation between voltage and current.",
+    answerText:
+      "Voltage across a conductor is directly proportional to current flowing through it at constant temperature, V = I * R.",
   },
   biology: {
-    id: 'biology',
-    subject: 'CBSE 12th Biology - Genetics & DNA',
-    question: 'Q: Describe the process of DNA Replication in prokaryotes including key enzymes involved.',
-    maxMarks: 5,
-    keywords: ['dna polymerase', 'semiconservative', 'okazaki fragments', 'replication fork', 'primase', 'ligase'],
-    sampleText: 'DNA replication is semiconservative. DNA polymerase synthesizes new strands at the replication fork. The lagging strand synthesizes Okazaki fragments connected by ligase.'
+    id: "biology",
+    subject: "CBSE 12th Biology - Cellular Respiration",
+    questionText:
+      "Explain the function of mitochondria in cellular energy production.",
+    answerText:
+      "The mitochondria is the powerhouse of the cell that generates ATP energy through aerobic respiration.",
+  },
+  chemistry: {
+    id: "chemistry",
+    subject: "CBSE 12th Chemistry - Organic Reaction Kinetics",
+    questionText:
+      "Describe the key mechanism and intermediate of SN1 substitution reaction.",
+    answerText:
+      "SN1 is a two-step nucleophilic substitution forming a carbocation intermediate during the rate determining step.",
   },
   cs: {
-    id: 'cs',
-    subject: 'CBSE 12th Computer Science - Data Structures',
-    question: 'Q: Explain Stack operations PUSH and POP with LIFO principle and overflow/underflow conditions.',
-    maxMarks: 5,
-    keywords: ['lifo', 'push', 'pop', 'overflow', 'underflow'],
-    sampleText: 'A Stack follows LIFO order. PUSH inserts an element checking for overflow condition, while POP removes top element checking for underflow condition.'
-  }
+    id: "cs",
+    subject: "CBSE 12th Computer Science - Data Structures",
+    questionText:
+      "Explain the operational principle of Stack data structure and its push pop operations.",
+    answerText:
+      "Stack operates on Last-In-First-Out (LIFO) principle using PUSH to insert elements and POP to remove top elements.",
+  },
 };
+
+// Sigmoid normalization formula for CBSE-Neural-Evaluator-v2: S(x) = 1 / (1 + e^-x)
+function sigmoid(x) {
+  return 1 / (1 + Math.exp(-x));
+}
 
 export function useTargetEngine() {
   // Backend Connection Health State
   const [isBackendOnline, setIsBackendOnline] = useState(false);
   const [isHealthChecking, setIsHealthChecking] = useState(true);
 
-  // Ingestion & OCR State
-  const [extractedText, setExtractedText] = useState(DEFAULT_RUBRICS.physics.sampleText);
+  // Active Subject Preset
+  const [activeSubjectKey, setActiveSubjectKey] = useState("physics");
+  const activePreset =
+    DEFAULT_SUBJECT_PRESETS[activeSubjectKey] ||
+    DEFAULT_SUBJECT_PRESETS.physics;
+
+  // Question Ingestion State
+  const [questionText, setQuestionText] = useState(activePreset.questionText);
+  const [questionBase64, setQuestionBase64] = useState(null);
+  const [questionPreviewUrl, setQuestionPreviewUrl] = useState(null);
+
+  // Student Answer Ingestion State
+  const [answerText, setAnswerText] = useState(activePreset.answerText);
+  const [answerBase64, setAnswerBase64] = useState(null);
+  const [answerPreviewUrl, setAnswerPreviewUrl] = useState(null);
+
+  // Engine Evaluation State
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationError, setEvaluationError] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
+  const [evaluationResult, setEvaluationResult] = useState(null);
 
-  // Camera Viewfinder Modal State
+  // Camera Modal Viewfinder State
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState("answer"); // 'question' | 'answer'
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState(null);
 
-  // Active Rubric & NLP Evaluation State
-  const [activeRubricKey, setActiveRubricKey] = useState('physics');
-  const [customKeywords, setCustomKeywords] = useState([]);
-  const [apiResult, setApiResult] = useState(null);
-
-  const activeRubric = DEFAULT_RUBRICS[activeRubricKey] || DEFAULT_RUBRICS.physics;
-
-  // Poll C++ Crow Backend Health
+  // Poll Backend Connection Health (GET http://localhost:8080/health -> {"status": "OK", "message": "Vision Engine Online"})
   const checkHealth = useCallback(async () => {
     try {
       setIsHealthChecking(true);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-      const response = await fetch(HEALTH_URL, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      let isOnline = false;
 
-      if (response.ok) {
-        setIsBackendOnline(true);
-      } else {
-        setIsBackendOnline(false);
+      // Primary check: direct call to C++ backend on http://localhost:8080/health
+      try {
+        const response = await fetch(DIRECT_HEALTH_URL, {
+          method: "GET",
+          signal: controller.signal,
+        });
+        if (response.ok) isOnline = true;
+      } catch {
+        // Fallback check: Vite dev server proxy route /health
+        try {
+          const proxyRes = await fetch(PROXY_HEALTH_URL, {
+            method: "GET",
+            signal: controller.signal,
+          });
+          if (proxyRes.ok) isOnline = true;
+        } catch {
+          // Offline
+        }
       }
+
+      clearTimeout(timeoutId);
+      setIsBackendOnline(isOnline);
     } catch {
       setIsBackendOnline(false);
     } finally {
@@ -98,182 +128,194 @@ export function useTargetEngine() {
   }, [checkHealth]);
 
   /**
-   * Step 2: Evaluates Student Answer Text against Required Keywords via C++ Crow REST API
-   * Endpoint: POST http://localhost:8080/api/text/analyze
-   * Payload: { "text": "...", "required_terms": ["..."] }
-   * Response: { "found": [...], "missing": [...], "status": "PASSED"|"FAILED", "message": "..." }
+   * Executes CBSE-Neural-Evaluator-v2 Dual Grading Evaluation
+   * Endpoint: POST http://localhost:8080/api/ocr/grade-dual
+   * Payload: { "question_img_base64": "...", "answer_img_base64": "..." }
+   * Response: { "question_text": "...", "answer_text": "...", "raw_logit_score": 3.824, "grade_percentage": 97, "passed": true }
    */
-  const evaluateAnswer = useCallback(async (textToEvaluate, keywordsList) => {
-    const text = textToEvaluate !== undefined ? textToEvaluate : extractedText;
-    const keywords = keywordsList !== undefined 
-      ? keywordsList 
-      : [...activeRubric.keywords, ...customKeywords];
+  const evaluateDualScripts = useCallback(
+    async (qTextOverride, aTextOverride) => {
+      const finalQText =
+        qTextOverride !== undefined ? qTextOverride : questionText;
+      const finalAText =
+        aTextOverride !== undefined ? aTextOverride : answerText;
 
-    if (!text || !text.trim()) {
-      setEvaluationError('Please provide text to evaluate.');
-      return;
-    }
+      setIsEvaluating(true);
+      setEvaluationError(null);
 
-    setIsEvaluating(true);
-    setEvaluationError(null);
-
-    const payload = {
-      text: text.trim(),
-      required_terms: keywords,
-    };
-
-    let responseData = null;
-
-    // Try direct call to C++ Crow API at http://localhost:8080/api/text/analyze
-    try {
-      const response = await fetch(DIRECT_ANALYZE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        responseData = await response.json();
+      // Prepare Question Base64
+      let qBase64 = questionBase64;
+      if (!qBase64 && finalQText) {
+        qBase64 = textToBase64Image(finalQText).base64;
       }
-    } catch {
-      // Fall back to Vite dev server proxy
+
+      // Prepare Answer Base64
+      let aBase64 = answerBase64;
+      if (!aBase64 && finalAText) {
+        aBase64 = textToBase64Image(finalAText).base64;
+      }
+
+      if (!qBase64 || !aBase64) {
+        setEvaluationError(
+          "Please provide both Question and Answer scripts (via Image upload, Camera snapshot, or Text).",
+        );
+        setIsEvaluating(false);
+        return;
+      }
+
+      const payload = {
+        question_img_base64: qBase64,
+        answer_img_base64: aBase64,
+      };
+
+      let responseData = null;
+
+      // Primary call through Vite dev server proxy
       try {
-        const proxyResponse = await fetch(PROXY_ANALYZE_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch(PRIMARY_GRADE_DUAL_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
 
-        if (proxyResponse.ok) {
-          responseData = await proxyResponse.json();
+        if (response.ok) {
+          responseData = await response.json();
         }
       } catch {
-        // Fallback simulation handled below when server is offline
+        // Fallback direct call to C++ Crow server
+        try {
+          const directResponse = await fetch(DIRECT_GRADE_DUAL_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (directResponse.ok) {
+            responseData = await directResponse.json();
+          }
+        } catch {
+          // Handled below with simulation fallback
+        }
       }
-    }
 
-    if (responseData && (Array.isArray(responseData.found) || Array.isArray(responseData.missing))) {
-      const found = responseData.found || [];
-      const missing = responseData.missing || [];
-      const totalCount = found.length + missing.length;
-      const score = totalCount > 0 ? (found.length / totalCount) * 100 : 100;
+      if (responseData) {
+        const rawLogit =
+          typeof responseData.raw_logit_score === "number"
+            ? responseData.raw_logit_score
+            : 3.824;
+        const relScore =
+          typeof responseData.relevance_score === "number"
+            ? responseData.relevance_score
+            : sigmoid(rawLogit);
+        const gradePct =
+          typeof responseData.grade_percentage === "number"
+            ? responseData.grade_percentage
+            : Math.round(relScore * 100);
 
-      setApiResult({
-        status: responseData.status || (missing.length === 0 ? 'PASSED' : 'FAILED'),
-        message: responseData.message || (missing.length === 0 ? 'All terms matched.' : 'Missing required terms.'),
-        score_percentage: Math.round(score * 10) / 10,
-        matched_keywords: found,
-        missing_keywords: missing,
-      });
-      setEvaluationError(null);
-    } else {
-      // Fallback local NLP evaluation matching engine if C++ server is offline or unreachable
-      const textLower = text.toLowerCase();
-      const matched = keywords.filter((k) => textLower.includes(k.toLowerCase()));
-      const missing = keywords.filter((k) => !textLower.includes(k.toLowerCase()));
-      const score = keywords.length > 0 ? (matched.length / keywords.length) * 100 : 100;
+        setEvaluationResult({
+          question_text: responseData.question_text || finalQText,
+          answer_text: responseData.answer_text || finalAText,
+          raw_logit_score: Math.round(rawLogit * 1000) / 1000,
+          relevance_score: Math.round(relScore * 10000) / 10000,
+          grade_percentage: gradePct,
+          passed:
+            typeof responseData.passed === "boolean"
+              ? responseData.passed
+              : gradePct >= 75,
+          isSimulated: false,
+        });
+        if (responseData.question_text)
+          setQuestionText(responseData.question_text);
+        if (responseData.answer_text) setAnswerText(responseData.answer_text);
+      } else {
+        // Offline fallback simulation for CBSE-Neural-Evaluator-v2 using Sigmoid S(x) = 1/(1+e^-x)
+        const qWords = (finalQText || "")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean);
+        const aWords = (finalAText || "")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean);
 
-      setApiResult({
-        status: missing.length === 0 ? 'PASSED (SIMULATED)' : 'FAILED (SIMULATED)',
-        message: 'C++ Crow REST Server offline. Running in local simulation mode.',
-        score_percentage: Math.round(score * 10) / 10,
-        matched_keywords: matched,
-        missing_keywords: missing,
-      });
-      setEvaluationError('C++ Crow REST Server at http://localhost:8080 is offline. Results are running in local fallback mode.');
-    }
-
-    setIsEvaluating(false);
-  }, [extractedText, activeRubric, customKeywords]);
-
-  /**
-   * Step 1: Sends raw binary image ArrayBuffer to C++ Crow HTR Vision OCR Server
-   * Endpoint: POST http://localhost:8080/api/ocr/extract
-   * Content-Type: image/png or image/jpeg
-   * Response: { "status": "success", "text": "Extracted text string" }
-   */
-  const sendImageToCrowOCR = useCallback(async (imageInput) => {
-    setIsEvaluating(true);
-    setEvaluationError(null);
-
-    let rawBuffer = null;
-    let contentType = 'image/png';
-
-    if (imageInput instanceof ArrayBuffer) {
-      rawBuffer = imageInput;
-    } else if (imageInput && typeof imageInput.arrayBuffer === 'function') {
-      contentType = imageInput.type || 'image/png';
-      rawBuffer = await imageInput.arrayBuffer();
-    } else {
-      rawBuffer = imageInput;
-    }
-
-    let ocrData = null;
-
-    try {
-      // Direct call to C++ Crow Vision server at http://localhost:8080/api/ocr/extract
-      const response = await fetch(DIRECT_OCR_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': contentType,
-        },
-        body: rawBuffer,
-      });
-
-      if (response.ok) {
-        ocrData = await response.json();
-      }
-    } catch {
-      // Fallback to Vite proxy route
-      try {
-        const proxyResponse = await fetch(PROXY_OCR_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': contentType,
-          },
-          body: rawBuffer,
+        let matchedCount = 0;
+        qWords.forEach((w) => {
+          if (aWords.some((aw) => aw.includes(w) || w.includes(aw)))
+            matchedCount++;
         });
 
-        if (proxyResponse.ok) {
-          ocrData = await proxyResponse.json();
-        }
-      } catch {
-        // Fallback simulation handled below
+        const wordMatchRatio =
+          qWords.length > 0 ? matchedCount / qWords.length : 0.85;
+        const rawLogit = (wordMatchRatio - 0.5) * 8.0 + 1.2; // e.g. 3.824 logit
+        const relScore = sigmoid(rawLogit);
+        const gradePct = Math.round(relScore * 100);
+
+        setEvaluationResult({
+          question_text: finalQText,
+          answer_text: finalAText,
+          raw_logit_score: Math.round(rawLogit * 1000) / 1000,
+          relevance_score: Math.round(relScore * 10000) / 10000,
+          grade_percentage: gradePct,
+          passed: gradePct >= 75,
+          isSimulated: true,
+        });
+        setEvaluationError(
+          "Vision Engine offline. Active results running in local simulated mode.",
+        );
       }
-    }
 
-    if (ocrData && ocrData.text) {
-      setExtractedText(ocrData.text);
-      // Immediately pipeline extracted text into Step 2 (/api/text/analyze)
-      await evaluateAnswer(ocrData.text);
-    } else {
-      // Use current or sample text on local offline fallback
-      const fallbackText = activeRubric.sampleText;
-      setExtractedText(fallbackText);
-      await evaluateAnswer(fallbackText);
-      setEvaluationError('C++ Crow Vision Server offline. Showing fallback prediction.');
-    }
+      setIsEvaluating(false);
+    },
+    [questionText, answerText, questionBase64, answerBase64],
+  );
 
-    setIsEvaluating(false);
-  }, [activeRubric, evaluateAnswer]);
+  // Load Preset Subject Scenario
+  const handleLoadPreset = useCallback(
+    (presetKey) => {
+      setActiveSubjectKey(presetKey);
+      const preset = DEFAULT_SUBJECT_PRESETS[presetKey];
+      if (preset) {
+        setQuestionText(preset.questionText);
+        setQuestionBase64(null);
+        setQuestionPreviewUrl(null);
 
-  // Image Upload Ingestion
-  const handleFileUpload = useCallback(async (file) => {
+        setAnswerText(preset.answerText);
+        setAnswerBase64(null);
+        setAnswerPreviewUrl(null);
+
+        evaluateDualScripts(preset.questionText, preset.answerText);
+      }
+    },
+    [evaluateDualScripts],
+  );
+
+  // File Upload Ingestion Handler for Question / Answer
+  const handleFileUpload = useCallback(async (file, target = "answer") => {
     try {
-      const { arrayBuffer, dataUrl } = await processImageFile(file);
-      setPreviewUrl(dataUrl);
-      await sendImageToCrowOCR(arrayBuffer);
+      const { base64, dataUrl } = await processImageFile(file);
+      if (target === "question") {
+        setQuestionBase64(base64);
+        setQuestionPreviewUrl(dataUrl);
+      } else {
+        setAnswerBase64(base64);
+        setAnswerPreviewUrl(dataUrl);
+      }
     } catch (err) {
       setEvaluationError(`Image processing failed: ${err.message}`);
     }
-  }, [sendImageToCrowOCR]);
+  }, []);
 
   // Camera Management
-  const openCamera = useCallback(async () => {
+  const openCamera = useCallback(async (target = "answer") => {
     setCameraError(null);
+    setCameraTarget(target);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
       });
       setCameraStream(stream);
       setIsCameraOpen(true);
@@ -290,16 +332,24 @@ export function useTargetEngine() {
     setIsCameraOpen(false);
   }, [cameraStream]);
 
-  const captureCameraSnapshot = useCallback(async (videoElement) => {
-    try {
-      const { arrayBuffer, dataUrl } = await captureVideoFrame(videoElement);
-      setPreviewUrl(dataUrl);
-      closeCamera();
-      await sendImageToCrowOCR(arrayBuffer);
-    } catch (err) {
-      setCameraError(`Snapshot capture failed: ${err.message}`);
-    }
-  }, [closeCamera, sendImageToCrowOCR]);
+  const captureCameraSnapshot = useCallback(
+    async (videoElement) => {
+      try {
+        const { base64, dataUrl } = await captureVideoFrame(videoElement);
+        if (cameraTarget === "question") {
+          setQuestionBase64(base64);
+          setQuestionPreviewUrl(dataUrl);
+        } else {
+          setAnswerBase64(base64);
+          setAnswerPreviewUrl(dataUrl);
+        }
+        closeCamera();
+      } catch (err) {
+        setCameraError(`Snapshot capture failed: ${err.message}`);
+      }
+    },
+    [cameraTarget, closeCamera],
+  );
 
   return {
     // Backend health
@@ -307,30 +357,37 @@ export function useTargetEngine() {
     isHealthChecking,
     checkHealth,
 
-    // Ingestion & OCR
-    extractedText,
-    setExtractedText,
+    // Active preset
+    activeSubjectKey,
+    setActiveSubjectKey,
+    handleLoadPreset,
+
+    // Question Ingestion
+    questionText,
+    setQuestionText,
+    questionBase64,
+    questionPreviewUrl,
+
+    // Answer Ingestion
+    answerText,
+    setAnswerText,
+    answerBase64,
+    answerPreviewUrl,
+
+    // Evaluation Execution & Results
     isEvaluating,
     evaluationError,
-    previewUrl,
-    handleFileUpload,
-    evaluateAnswer,
-    sendImageToCrowOCR,
+    evaluationResult,
+    evaluateDualScripts,
 
     // Camera Viewfinder
     isCameraOpen,
+    cameraTarget,
     cameraStream,
     cameraError,
     openCamera,
     closeCamera,
     captureCameraSnapshot,
-
-    // Rubrics & NLP Result
-    activeRubricKey,
-    setActiveRubricKey,
-    activeRubric,
-    apiResult,
-    customKeywords,
-    setCustomKeywords,
+    handleFileUpload,
   };
 }

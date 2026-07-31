@@ -1,16 +1,13 @@
 /**
- * Target AI - Image Ingestion & Raw Binary Buffer Preprocessor Utility
- * Prepares raw image files and camera frames for C++ HTR Vision REST API
- * endpoint POST http://localhost:8080/api/ocr/extract (OpenCV + Tesseract LSTM).
+ * Target AI - Base64 & Canvas Image Converter Utility
+ * Utility functions for converting image files, video camera frames,
+ * and typed text into Base64 encoded images for C++ Vision Engine (POST /api/ocr/grade-dual).
  */
 
-export const TARGET_WIDTH = 128;
-export const TARGET_HEIGHT = 32;
-
 /**
- * Preprocesses an image File into raw binary Blob & data URL preview
+ * Converts a File or Blob object into a clean Base64 data string (without prefix)
  * @param {File|Blob} file 
- * @returns {Promise<{ blob: Blob, arrayBuffer: ArrayBuffer, dataUrl: string }>}
+ * @returns {Promise<{ base64: string, dataUrl: string }>}
  */
 export function processImageFile(file) {
   return new Promise((resolve, reject) => {
@@ -20,17 +17,11 @@ export function processImageFile(file) {
     }
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        resolve({
-          blob: file,
-          arrayBuffer,
-          dataUrl: event.target.result,
-        });
-      } catch (err) {
-        reject(err);
-      }
+    reader.onload = (event) => {
+      const dataUrl = event.target.result;
+      // Strip "data:image/png;base64," prefix for raw Base64 string
+      const base64 = dataUrl.split(',')[1] || dataUrl;
+      resolve({ base64, dataUrl });
     };
     reader.onerror = () => reject(new Error("Failed to read image file."));
     reader.readAsDataURL(file);
@@ -38,9 +29,54 @@ export function processImageFile(file) {
 }
 
 /**
- * Captures live video frame from HTMLVideoElement and converts to PNG Blob, ArrayBuffer & data URL
+ * Renders typed text onto an offscreen canvas image and returns Base64 & data URL
+ * @param {string} text 
+ * @returns {{ base64: string, dataUrl: string }}
+ */
+export function textToBase64Image(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1000;
+  canvas.height = 300;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error("Could not create canvas 2D context.");
+  }
+
+  // Draw high-contrast black ink text on white paper background for Tesseract OCR
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#000000';
+  ctx.font = '24px "JetBrains Mono", monospace';
+  
+  // Wrap text into multiple lines
+  const words = (text || '').split(' ');
+  let line = '';
+  let y = 50;
+
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > 920 && n > 0) {
+      ctx.fillText(line, 40, y);
+      line = words[n] + ' ';
+      y += 36;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, 40, y);
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  return { base64, dataUrl };
+}
+
+/**
+ * Captures live video frame from HTMLVideoElement as Base64 string & data URL
  * @param {HTMLVideoElement} videoElement 
- * @returns {Promise<{ blob: Blob, arrayBuffer: ArrayBuffer, dataUrl: string }>}
+ * @returns {Promise<{ base64: string, dataUrl: string }>}
  */
 export function captureVideoFrame(videoElement) {
   return new Promise((resolve, reject) => {
@@ -61,18 +97,8 @@ export function captureVideoFrame(videoElement) {
 
     ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/png');
+    const base64 = dataUrl.split(',')[1];
 
-    canvas.toBlob(async (blob) => {
-      if (blob) {
-        try {
-          const arrayBuffer = await blob.arrayBuffer();
-          resolve({ blob, arrayBuffer, dataUrl });
-        } catch (err) {
-          reject(err);
-        }
-      } else {
-        reject(new Error("Failed to convert canvas to Blob."));
-      }
-    }, 'image/png');
+    resolve({ base64, dataUrl });
   });
 }

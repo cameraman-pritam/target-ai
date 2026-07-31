@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Camera, X, AlertCircle } from 'lucide-react';
 
-export default function CameraModal({ isOpen, stream, cameraError, onClose, onCapture }) {
+export default function CameraModal({ isOpen, target = 'answer', stream, cameraError, onClose, onCapture }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -18,15 +18,17 @@ export default function CameraModal({ isOpen, stream, cameraError, onClose, onCa
     }
   };
 
+  const targetLabel = target === 'question' ? 'QUESTION PAPER SCRIPT' : 'STUDENT ANSWER SCRIPT';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-      <div className="relative w-full max-w-2xl bg-[#FBF8EF] border-2 border-[#1A1A1A] shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-5">
+      <div className="relative w-full max-w-2xl bg-[#FBF8EF] border-2 border-[#1A1A1A] shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-5 font-mono">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b-2 border-[#1A1A1A] pb-3 mb-4">
           <div className="flex items-center gap-2">
             <Camera className="w-5 h-5 text-[#1A1A1A]" />
-            <h3 className="font-mono text-lg font-bold text-[#1A1A1A] uppercase tracking-wide">
-              LIVE OPTICAL VIEWFINDER
+            <h3 className="text-lg font-bold text-[#1A1A1A] uppercase tracking-wide">
+              LIVE OPTICAL VIEWFINDER ({targetLabel})
             </h3>
           </div>
           <button
@@ -39,7 +41,7 @@ export default function CameraModal({ isOpen, stream, cameraError, onClose, onCa
 
         {/* Camera Feed Container */}
         {cameraError ? (
-          <div className="bg-[#FDF2F2] border-2 border-[#A83232] p-4 text-[#A83232] font-mono text-sm mb-4">
+          <div className="bg-[#FDF2F2] border-2 border-[#A83232] p-4 text-[#A83232] text-sm mb-4">
             <div className="flex items-center gap-2 font-bold mb-1">
               <AlertCircle className="w-5 h-5" />
               <span>Camera Error</span>
@@ -66,9 +68,9 @@ export default function CameraModal({ isOpen, stream, cameraError, onClose, onCa
               
               {/* Center Crosshair */}
               <div className="self-center flex flex-col items-center">
-                <div className="w-48 h-12 border-2 border-dashed border-emerald-400/80 bg-emerald-500/10 flex items-center justify-center">
-                  <span className="font-mono text-[10px] text-emerald-300 font-semibold uppercase tracking-wider">
-                    ALIGN ANSWER LINE HERE (128x32)
+                <div className="w-56 h-14 border-2 border-dashed border-emerald-400/80 bg-emerald-500/10 flex items-center justify-center text-center p-1">
+                  <span className="text-[10px] text-emerald-300 font-semibold uppercase tracking-wider">
+                    ALIGN {targetLabel} SCRIPT LINE HERE
                   </span>
                 </div>
               </div>
@@ -82,9 +84,9 @@ export default function CameraModal({ isOpen, stream, cameraError, onClose, onCa
         )}
 
         {/* Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 font-mono text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs">
           <p className="text-[#4A4A4A]">
-            Ensure handwriting is clearly lit and centered in crosshairs.
+            Ensure handwriting for {targetLabel} is clearly lit.
           </p>
           <div className="flex gap-2">
             <button

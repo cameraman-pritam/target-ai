@@ -18,7 +18,7 @@ export default function Header({ isBackendOnline, isHealthChecking, onRefreshHea
           <span className="text-[#D3CBBE]">|</span>
           <span>VOL. CXXIV NO. 42</span>
           <span className="hidden sm:inline text-[#D3CBBE]">|</span>
-          <span className="hidden sm:inline">BOARD EXAM EVALUATION DIVISION</span>
+          <span className="hidden sm:inline">DUAL-VISION EVALUATION DIVISION</span>
         </div>
         <div className="flex items-center gap-2">
           <span>{currentDate}</span>
@@ -32,11 +32,11 @@ export default function Header({ isBackendOnline, isHealthChecking, onRefreshHea
             TARGET AI
           </h1>
           <p className="font-mono text-xs sm:text-sm tracking-widest text-[#4A4A4A] mt-1 font-semibold uppercase">
-            Automated Board Exam Handwritten Answer Sheet Evaluator & Rubric Diagnostics
+            Automated Board Exam Dual-Script Evaluator & Semantic AI Diagnostics
           </p>
         </div>
 
-        {/* Live C++ Crow Engine Status Badge */}
+        {/* Clean Engine Status Badge */}
         <div className="mt-4 sm:absolute sm:top-6 sm:right-6 flex items-center justify-center">
           <div className={`flex items-center gap-2 px-3 py-1.5 border-2 border-[#1A1A1A] font-mono text-xs font-bold ${
             isBackendOnline 
@@ -45,12 +45,12 @@ export default function Header({ isBackendOnline, isHealthChecking, onRefreshHea
           }`}>
             <Cpu className="w-4 h-4" />
             <span>
-              {isBackendOnline ? 'C++ CROW: ONLINE' : 'C++ CROW: OFFLINE'}
+              {isBackendOnline ? 'ENGINE: ONLINE' : 'ENGINE: OFFLINE'}
             </span>
             <button 
               onClick={onRefreshHealth}
               disabled={isHealthChecking}
-              title="Re-check Crow Server Status"
+              title="Re-check Backend Engine Connection"
               className="ml-1 p-0.5 hover:bg-black/20 rounded transition-colors"
             >
               <RefreshCw className={`w-3 h-3 ${isHealthChecking ? 'animate-spin' : ''}`} />
@@ -61,8 +61,8 @@ export default function Header({ isBackendOnline, isHealthChecking, onRefreshHea
 
       {/* Broadsheet Sub-bar rule */}
       <div className="broadsheet-double-border mx-4 my-1 py-1 flex justify-between items-center text-[11px] font-mono uppercase tracking-wider text-[#4A4A4A]">
-        <span>EDITION: NATIONAL BOARD EVALUATION</span>
-        <span className="hidden md:inline">C++ CROW OCR ENGINE • 32x128 RESAMPLING • REALTIME RUBRIC HEATMAP</span>
+        <span>NATIONAL BOARD EVALUATION</span>
+        <span className="hidden md:inline">QUESTION & ANSWER DUAL-VISION INGESTION • SEMANTIC VECTOR ALIGNMENT</span>
         <span>FINAL MARKS RECORD</span>
       </div>
     </header>
