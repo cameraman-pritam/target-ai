@@ -34,3 +34,5 @@ compile_commands.json
 .clang-format-cache
 .vscode/
 .idea/
+vision_engine
+main
