@@ -1,96 +1,127 @@
-# AI Grading API Architecture: Vision & Semantic Engine (v2)
+# Target AI / Keyword Sniper 
 
-This API is a high-performance, decoupled grading pipeline written in C++ (using the Crow framework). It combines optical character recognition (OCR) with an NLP Cross-Encoder to evaluate handwritten student answers against official CBSE answer keys.
+An automated board exam answer sheet evaluation system designed for CBSE/NCERT Class 11 & 12 subjects. It uses a **hybrid execution model** combining an instant in-browser NLP engine for typed answers and a C++ vision server for handwritten physical answer sheets.
 
 ---
 
-## 🛠️ Compilation & Build Instructions
+## How It Works
 
-### Compilation Command
+Evaluating written answers by hand takes time and often suffers from inconsistent grading. Target AI breaks down the grading process into two main paths:
 
-Compile the C++ backend executable `vision_engine` using `clang++` with maximum native architecture optimizations:
+1. **Client-Side Real-Time NLP (In-Browser)**
+   - As students type text, a lightweight 1D-CNN + Multi-Layer Perceptron (128 $\rightarrow$ 64 $\rightarrow$ 32 $\rightarrow$ 1) runs directly in the browser sandbox.
+   - Evaluates keyword density, synonym equivalences, and concept matches with **0ms network latency**.
+
+2. **Server-Side Handwritten OCR & HTR (Crow C++)**
+   - For scanned or webcam-captured physical answer sheets.
+   - Uses OpenCV for image preprocessing (CLAHE illumination correction, Gaussian noise removal, and Sauvola/Otsu binarization).
+   - Extracts handwriting using Tesseract 5 LSTM OCR and scores the answer using our C++ neural network backend.
+
+---
+
+## Repository Structure
+
+```
+├── backend/
+│   ├── main.cpp                # Crow C++ REST API server
+│   ├── AnnEngine.hpp / .cpp     # Multi-Layer C++ Neural Network & Synonym Matching
+│   ├── HtrVisionPipeline.hpp   # OpenCV image processing & Tesseract 5 OCR pipeline
+│   └── train_ann.cpp           # C++ offline model training script
+├── web/                        # React.js + Vite broadsheet user interface
+│   ├── src/hooks/              # Custom evaluation hooks (useSniperEngine, useTargetEngine)
+│   └── src/utils/              # In-browser WASM/JS NLP evaluation engine
+├── data/                       # Datasets & offline processing scripts
+│   ├── download_datasets.py    # Hugging Face NCERT/CBSE dataset scraper
+│   └── extract_marking_scheme.py # PDF/CSV marking scheme JSON parser
+└── models/                     # Trained weights & tokenizer metadata
+```
+
+---
+
+## Quick Start & Run Commands
+
+### 1. Start the C++ Backend Server
+First compile and launch the C++ vision engine:
 
 ```bash
-clang++ -O3 -march=native main.cpp -o vision_engine $(pkg-config --cflags opencv5 tesseract) -lopencv_core -lopencv_imgproc -lopencv_imgcodecs $(pkg-config --libs tesseract) -lpthread -lcurl
+# From repository root:
+g++ -I/usr/include/opencv5 -std=c++17 backend/main.cpp backend/AnnEngine.cpp \
+  -o backend/vision_engine -ltesseract -lopencv_core -lopencv_imgproc -lopencv_imgcodecs -lcurl -lpthread
+
+# Run the server on port 8080:
+./backend/vision_engine
 ```
 
-### System Requirements
-
-* **Inference Engine:** `llama-server` running a Q8_0 quantized GGUF model with the `--reranking` flag active on port `8081`.
-* **Libraries:** Crow (HTTP API), OpenCV (Matrix parsing), Tesseract (OCR), Leptonica, Libcurl.
-
----
-
-## ⚡ Pipeline Workflow
-
-1. **Payload Ingestion**
-   The frontend captures images of the Question/Answer Key and the Student's Answer, encoding them in Base64. These are sent to the C++ backend via a `POST` request.
-
-2. **Vision Processing (OpenCV + Tesseract)**
-   * **Decoding:** The Base64 strings are decoded back into raw binary image data.
-   * **Preprocessing:** OpenCV converts the images to grayscale and applies binary OTSU thresholding to isolate handwriting from the background noise.
-   * **Extraction:** The Tesseract LSTM engine processes the cleaned matrices and extracts UTF-8 string text.
-
-3. **Semantic Evaluation (Cross-Encoder Forward Pass)**
-   * The extracted text strings are passed to a local `llama-server` inference instance via `libcurl`.
-   * The server runs the **CBSE-Neural-Evaluator-v2** model in memory.
-   * The neural network processes both strings simultaneously and outputs a raw **logit score** representing the semantic similarity and factual accuracy.
-
-4. **Mathematical Normalization**
-   Because the neural network outputs raw logits, the C++ engine applies a strict Sigmoid activation function to squash the tensor output into a clean probability distribution between 0.0 and 1.0:
-
-   $$S(x) = \frac{1}{1 + e^{-x}}$$
-
-   This normalized score is multiplied by 100 to generate the final grade percentage.
-
-5. **System Logging & Response Delivery**
-   The C++ server prints a real-time, cinematic diagnostic trace to the terminal for monitoring evaluation requests. A final JSON payload is constructed containing the extracted text, raw tensor data, the final grade, and a boolean pass/fail flag (threshold: 75%).
-
----
-
-## 🚀 API Specifications
-
-**Endpoint:** `POST /api/ocr/grade-dual`
-**Headers:** `Content-Type: application/json`
-
-### 1. Request Payload (Frontend -> C++)
-
-The endpoint expects a JSON object containing two Base64 encoded images.
-
-```json
-{
-  "question_img_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
-  "answer_img_base64": "iVBORw0KGgoAAAANSUhEUgAA..."
-}
-```
-
-### 2. Response Payload (C++ -> Frontend)
-
-The API responds with HTTP 200 and the following structured data:
-
-```json
-{
-  "question_text": "State Ohm's Law.",
-  "answer_text": "The current through a conductor is proportional to the voltage.",
-  "raw_logit_score": 3.824,
-  "grade_percentage": 97,
-  "passed": true
-}
-```
-
-#### 3. Health Check Endpoint
-
-`GET http://localhost:8080/health` -> Returns `200 OK` JSON `{ "status": "OK", "message": "Vision Engine Online" }`.
-
----
-
-## 💻 Web UI Integration
-
-The React.js + Vite broadsheet frontend is located in the `./web` directory.
-Run the development server with:
+### 2. Start the Web UI
+In a separate terminal, start the React dev server:
 
 ```bash
 cd web
 bun install
 bun run dev
 ```
+
+Open [http://localhost:5173/](http://localhost:5173/) in your browser.
+
+---
+
+## Dataset Ingestion & Model Training
+
+To download fresh NCERT/CBSE datasets from Hugging Face and train the neural network weights:
+
+```bash
+# 1. Download datasets from Hugging Face into data/
+python3 data/download_datasets.py
+
+# 2. Extract structured marking schemes into cbse_marking_schemes.json
+python3 data/extract_marking_scheme.py
+
+# 3. Compile and run the C++ ANN training script
+g++ -std=c++17 backend/train_ann.cpp backend/AnnEngine.cpp -o backend/train_ann
+./backend/train_ann
+```
+
+The trained weights will be saved to `models/cbse_ann_weights.bin`.
+
+---
+
+## API Reference
+
+### `POST /api/ocr/grade-dual`
+Evaluates Question Image + Answer Sheet Image (Base64).
+
+**Request Body:**
+```json
+{
+  "question_img_base64": "data:image/png;base64,...",
+  "answer_img_base64": "data:image/png;base64,..."
+}
+```
+
+**Response:**
+```json
+{
+  "question_text": "Define Ohm's Law...",
+  "answer_text": "Voltage across a conductor is proportional to current...",
+  "raw_logit_score": 2.080,
+  "relevance_score": 0.8889,
+  "grade_percentage": 89,
+  "passed": true,
+  "matched_keywords": ["voltage", "current", "proportional", "conductor"],
+  "missing_keywords": []
+}
+```
+
+### `POST /api/nlp/evaluate`
+Real-time text evaluation against expected keywords.
+
+### `GET /health`
+Returns backend health and model status: `{ "status": "OK", "message": "CBSE Evaluation Engine Online" }`.
+
+---
+
+## 🛠️ Requirements
+
+- **Backend**: GCC / g++ (C++17), OpenCV 4/5, Tesseract 5, Crow (header-only), libcurl.
+- **Frontend**: Node.js / Bun.
+- **Python**: Python 3.8+, `pandas`, `datasets`, `huggingface_hub`.

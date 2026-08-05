@@ -1,18 +1,3 @@
-# CMake build directories and presets
-build/
-bin/
-lib/
-CMakeUserPresets.json
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-
-# Conan generated environment scripts
-conanrun.sh
-conanbuild.sh
-deactivate_conanrun.sh
-deactivate_conanbuild.sh
-
 # C++ Executables & Object files
 *.o
 *.obj
@@ -22,17 +7,21 @@ deactivate_conanbuild.sh
 *.dll
 *.exe
 *.out
+vision_engine
+train_ann
+test_build
 CnnCrowServer
 TrainHTR
+build/
+bin/
+lib/
 
-# Neural Network Trained Weights Output
+# Trained Weights & Model Artifacts
 *.bin
+*.json
 model.bin
 
-# Tooling & IDEs
-compile_commands.json
-.clang-format-cache
+# IDEs & System
 .vscode/
 .idea/
-vision_engine
-main
+.DS_Store

@@ -1,1 +1,5 @@
-cbse*
+# Generated Datasets & CSV files
+*.csv
+*.parquet
+*.json
+.venv/

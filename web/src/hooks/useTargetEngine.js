@@ -5,12 +5,11 @@ import {
   captureVideoFrame,
 } from "../utils/imagePreprocessor";
 
-const PRIMARY_GRADE_DUAL_URL = "/api/ocr/grade-dual";
-const DIRECT_GRADE_DUAL_URL = "http://localhost:8080/api/ocr/grade-dual";
-const DIRECT_HEALTH_URL = "http://localhost:8080/health";
-const PROXY_HEALTH_URL = "/health";
+const API_GRADE_DUAL = "/api/ocr/grade-dual";
+const DIRECT_GRADE_DUAL = "http://localhost:8080/api/ocr/grade-dual";
+const DIRECT_HEALTH = "http://localhost:8080/health";
+const PROXY_HEALTH = "/health";
 
-// Pre-packaged CBSE Board Exam Question + Answer Subject Presets
 export const DEFAULT_SUBJECT_PRESETS = {
   physics: {
     id: "physics",
@@ -46,74 +45,70 @@ export const DEFAULT_SUBJECT_PRESETS = {
   },
 };
 
-// Sigmoid normalization formula for CBSE-Neural-Evaluator-v2: S(x) = 1 / (1 + e^-x)
+const STOPWORDS = new Set([
+  "a", "an", "the", "is", "are", "was", "were", "be", "been", "in", "on", "at", 
+  "to", "for", "from", "by", "with", "and", "or", "what", "how", "define", 
+  "explain", "describe", "write", "its", "of", "this", "that", "which"
+]);
+
 function sigmoid(x) {
   return 1 / (1 + Math.exp(-x));
 }
 
 export function useTargetEngine() {
-  // Backend Connection Health State
   const [isBackendOnline, setIsBackendOnline] = useState(false);
   const [isHealthChecking, setIsHealthChecking] = useState(true);
 
-  // Active Subject Preset
   const [activeSubjectKey, setActiveSubjectKey] = useState("physics");
   const activePreset =
     DEFAULT_SUBJECT_PRESETS[activeSubjectKey] ||
     DEFAULT_SUBJECT_PRESETS.physics;
 
-  // Question Ingestion State
   const [questionText, setQuestionText] = useState(activePreset.questionText);
   const [questionBase64, setQuestionBase64] = useState(null);
   const [questionPreviewUrl, setQuestionPreviewUrl] = useState(null);
 
-  // Student Answer Ingestion State
   const [answerText, setAnswerText] = useState(activePreset.answerText);
   const [answerBase64, setAnswerBase64] = useState(null);
   const [answerPreviewUrl, setAnswerPreviewUrl] = useState(null);
 
-  // Engine Evaluation State
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationError, setEvaluationError] = useState(null);
   const [evaluationResult, setEvaluationResult] = useState(null);
 
-  // Camera Modal Viewfinder State
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [cameraTarget, setCameraTarget] = useState("answer"); // 'question' | 'answer'
+  const [cameraTarget, setCameraTarget] = useState("answer");
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState(null);
 
-  // Poll Backend Connection Health (GET http://localhost:8080/health -> {"status": "OK", "message": "Vision Engine Online"})
   const checkHealth = useCallback(async () => {
     try {
       setIsHealthChecking(true);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timer = setTimeout(() => controller.abort(), 2000);
 
-      let isOnline = false;
+      let online = false;
 
-      // Primary check: direct call to C++ backend on http://localhost:8080/health
       try {
-        const response = await fetch(DIRECT_HEALTH_URL, {
+        const res = await fetch(DIRECT_HEALTH, {
           method: "GET",
           signal: controller.signal,
         });
-        if (response.ok) isOnline = true;
+        if (res.ok) online = true;
       } catch {
-        // Fallback check: Vite dev server proxy route /health
         try {
-          const proxyRes = await fetch(PROXY_HEALTH_URL, {
+          const proxyRes = await fetch(PROXY_HEALTH, {
             method: "GET",
             signal: controller.signal,
           });
-          if (proxyRes.ok) isOnline = true;
+          if (proxyRes.ok) online = true;
         } catch {
-          // Offline
+          // Engine offline
         }
       }
 
-      clearTimeout(timeoutId);
-      setIsBackendOnline(isOnline);
+      clearTimeout(timer);
+      setIsBackendOnline(online);
     } catch {
       setIsBackendOnline(false);
     } finally {
@@ -127,29 +122,19 @@ export function useTargetEngine() {
     return () => clearInterval(interval);
   }, [checkHealth]);
 
-  /**
-   * Executes CBSE-Neural-Evaluator-v2 Dual Grading Evaluation
-   * Endpoint: POST http://localhost:8080/api/ocr/grade-dual
-   * Payload: { "question_img_base64": "...", "answer_img_base64": "..." }
-   * Response: { "question_text": "...", "answer_text": "...", "raw_logit_score": 3.824, "grade_percentage": 97, "passed": true }
-   */
   const evaluateDualScripts = useCallback(
-    async (qTextOverride, aTextOverride) => {
-      const finalQText =
-        qTextOverride !== undefined ? qTextOverride : questionText;
-      const finalAText =
-        aTextOverride !== undefined ? aTextOverride : answerText;
+    async (qOverride, aOverride) => {
+      const finalQText = qOverride !== undefined ? qOverride : questionText;
+      const finalAText = aOverride !== undefined ? aOverride : answerText;
 
       setIsEvaluating(true);
       setEvaluationError(null);
 
-      // Prepare Question Base64
       let qBase64 = questionBase64;
       if (!qBase64 && finalQText) {
         qBase64 = textToBase64Image(finalQText).base64;
       }
 
-      // Prepare Answer Base64
       let aBase64 = answerBase64;
       if (!aBase64 && finalAText) {
         aBase64 = textToBase64Image(finalAText).base64;
@@ -157,7 +142,7 @@ export function useTargetEngine() {
 
       if (!qBase64 || !aBase64) {
         setEvaluationError(
-          "Please provide both Question and Answer scripts (via Image upload, Camera snapshot, or Text).",
+          "Please provide both Question and Answer text or image scripts.",
         );
         setIsEvaluating(false);
         return;
@@ -168,87 +153,88 @@ export function useTargetEngine() {
         answer_img_base64: aBase64,
       };
 
-      let responseData = null;
+      let resData = null;
 
-      // Primary call through Vite dev server proxy
       try {
-        const response = await fetch(PRIMARY_GRADE_DUAL_URL, {
+        const res = await fetch(API_GRADE_DUAL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
 
-        if (response.ok) {
-          responseData = await response.json();
-        }
+        if (res.ok) resData = await res.json();
       } catch {
-        // Fallback direct call to C++ Crow server
         try {
-          const directResponse = await fetch(DIRECT_GRADE_DUAL_URL, {
+          const directRes = await fetch(DIRECT_GRADE_DUAL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
 
-          if (directResponse.ok) {
-            responseData = await directResponse.json();
-          }
+          if (directRes.ok) resData = await directRes.json();
         } catch {
-          // Handled below with simulation fallback
+          // Local fallback
         }
       }
 
-      if (responseData) {
+      if (resData) {
         const rawLogit =
-          typeof responseData.raw_logit_score === "number"
-            ? responseData.raw_logit_score
-            : 3.824;
+          typeof resData.raw_logit_score === "number"
+            ? resData.raw_logit_score
+            : -4.5;
         const relScore =
-          typeof responseData.relevance_score === "number"
-            ? responseData.relevance_score
+          typeof resData.relevance_score === "number"
+            ? resData.relevance_score
             : sigmoid(rawLogit);
         const gradePct =
-          typeof responseData.grade_percentage === "number"
-            ? responseData.grade_percentage
+          typeof resData.grade_percentage === "number"
+            ? resData.grade_percentage
             : Math.round(relScore * 100);
 
         setEvaluationResult({
-          question_text: responseData.question_text || finalQText,
-          answer_text: responseData.answer_text || finalAText,
+          question_text: resData.question_text || finalQText,
+          answer_text: resData.answer_text || finalAText,
           raw_logit_score: Math.round(rawLogit * 1000) / 1000,
           relevance_score: Math.round(relScore * 10000) / 10000,
           grade_percentage: gradePct,
           passed:
-            typeof responseData.passed === "boolean"
-              ? responseData.passed
+            typeof resData.passed === "boolean"
+              ? resData.passed
               : gradePct >= 75,
           isSimulated: false,
         });
-        if (responseData.question_text)
-          setQuestionText(responseData.question_text);
-        if (responseData.answer_text) setAnswerText(responseData.answer_text);
+        if (resData.question_text) setQuestionText(resData.question_text);
+        if (resData.answer_text) setAnswerText(resData.answer_text);
       } else {
-        // Offline fallback simulation for CBSE-Neural-Evaluator-v2 using Sigmoid S(x) = 1/(1+e^-x)
         const qWords = (finalQText || "")
           .toLowerCase()
+          .replace(/[^\w\s]/g, "")
           .split(/\s+/)
-          .filter(Boolean);
+          .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
         const aWords = (finalAText || "")
           .toLowerCase()
+          .replace(/[^\w\s]/g, "")
           .split(/\s+/)
-          .filter(Boolean);
+          .filter((w) => w.length > 2 && !STOPWORDS.has(w));
 
-        let matchedCount = 0;
+        let count = 0;
         qWords.forEach((w) => {
-          if (aWords.some((aw) => aw.includes(w) || w.includes(aw)))
-            matchedCount++;
+          if (aWords.some((aw) => aw === w || aw.includes(w) || w.includes(aw))) count++;
         });
 
-        const wordMatchRatio =
-          qWords.length > 0 ? matchedCount / qWords.length : 0.85;
-        const rawLogit = (wordMatchRatio - 0.5) * 8.0 + 1.2; // e.g. 3.824 logit
-        const relScore = sigmoid(rawLogit);
-        const gradePct = Math.round(relScore * 100);
+        const ratio = qWords.length > 0 ? count / qWords.length : 0.0;
+        let rawLogit, relScore, gradePct;
+
+        if (count === 0) {
+          rawLogit = -4.5;
+          relScore = sigmoid(rawLogit);
+          gradePct = 1;
+        } else {
+          rawLogit = (ratio - 0.5) * 6.0;
+          relScore = sigmoid(rawLogit);
+          gradePct = Math.round(relScore * 100);
+        }
 
         setEvaluationResult({
           question_text: finalQText,
@@ -259,9 +245,6 @@ export function useTargetEngine() {
           passed: gradePct >= 75,
           isSimulated: true,
         });
-        setEvaluationError(
-          "Vision Engine offline. Active results running in local simulated mode.",
-        );
       }
 
       setIsEvaluating(false);
@@ -269,7 +252,6 @@ export function useTargetEngine() {
     [questionText, answerText, questionBase64, answerBase64],
   );
 
-  // Load Preset Subject Scenario
   const handleLoadPreset = useCallback(
     (presetKey) => {
       setActiveSubjectKey(presetKey);
@@ -289,7 +271,6 @@ export function useTargetEngine() {
     [evaluateDualScripts],
   );
 
-  // File Upload Ingestion Handler for Question / Answer
   const handleFileUpload = useCallback(async (file, target = "answer") => {
     try {
       const { base64, dataUrl } = await processImageFile(file);
@@ -301,26 +282,21 @@ export function useTargetEngine() {
         setAnswerPreviewUrl(dataUrl);
       }
     } catch (err) {
-      setEvaluationError(`Image processing failed: ${err.message}`);
+      setEvaluationError(`Failed to process image: ${err.message}`);
     }
   }, []);
 
-  // Camera Management
   const openCamera = useCallback(async (target = "answer") => {
     setCameraError(null);
     setCameraTarget(target);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
       });
       setCameraStream(stream);
       setIsCameraOpen(true);
     } catch (err) {
-      setCameraError(`Camera permission denied or unavailable: ${err.message}`);
+      setCameraError(`Camera unavailable: ${err.message}`);
     }
   }, []);
 
@@ -345,42 +321,36 @@ export function useTargetEngine() {
         }
         closeCamera();
       } catch (err) {
-        setCameraError(`Snapshot capture failed: ${err.message}`);
+        setCameraError(`Failed to capture snapshot: ${err.message}`);
       }
     },
     [cameraTarget, closeCamera],
   );
 
   return {
-    // Backend health
     isBackendOnline,
     isHealthChecking,
     checkHealth,
 
-    // Active preset
     activeSubjectKey,
     setActiveSubjectKey,
     handleLoadPreset,
 
-    // Question Ingestion
     questionText,
     setQuestionText,
     questionBase64,
     questionPreviewUrl,
 
-    // Answer Ingestion
     answerText,
     setAnswerText,
     answerBase64,
     answerPreviewUrl,
 
-    // Evaluation Execution & Results
     isEvaluating,
     evaluationError,
     evaluationResult,
     evaluateDualScripts,
 
-    // Camera Viewfinder
     isCameraOpen,
     cameraTarget,
     cameraStream,
